@@ -24,6 +24,39 @@ module Paperclip
         flush_deletes
       end
     end
+
+    # We overwrite this method to put a circuit breaker around
+    # calls to object storage, to stop hitting APIs that are slow
+    # to respond or don't respond at all and as such minimize the
+    # impact of object storage outages on application throughput
+    def save
+      circuit_break! do
+        flush_deletes unless @options[:keep_old_files]
+
+        process = only_process
+        @queued_for_write.except!(:original) if process.any? && !process.include?(:original)
+
+        flush_writes
+      end
+
+      @dirty = false
+      true
+    end
+
+    private
+
+    STOPLIGHT_THRESHOLD = 10
+    STOPLIGHT_COOLDOWN  = 30
+
+    def circuit_break!(&block)
+      Stoplight('object-storage', &block).with_threshold(STOPLIGHT_THRESHOLD).with_cool_off_time(STOPLIGHT_COOLDOWN).with_error_handler do |error, handle|
+        if error.is_a?(Seahorse::Client::NetworkingError)
+          handle.call(error)
+        else
+          raise error
+        end
+      end.run
+    end
   end
 end
 
