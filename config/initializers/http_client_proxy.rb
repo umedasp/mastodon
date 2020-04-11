@@ -20,3 +20,5 @@ Rails.application.configure do
 
   config.x.access_to_hidden_service = ENV['ALLOW_ACCESS_TO_HIDDEN_SERVICE'] == 'true'
 end
+
+RestClient.proxy = ENV['http_proxy'] if Rails.application.config.x.http_client_proxy[:proxy].present?
